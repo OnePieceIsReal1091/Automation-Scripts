@@ -1,0 +1,59 @@
+# Prompt for user input
+$GivenName = Read-Host "Enter the user's given name"
+$Surname = Read-Host "Enter the user's surname"
+$SamAccountName = Read-Host "Enter the user's SAM account name"
+$Company = Read-Host "Enter the user's company"
+$JobTitle = Read-Host "Enter the user's job title"
+
+# Prompt for manager's email address
+$ManagerEmail = Read-Host "Enter the manager's email address"
+
+# Define OU and other static information
+$OUPath = "OU=Staff,OU=Users,OU=CoxReps,DC=locality,DC=corp"
+$Department = "Broadcast"
+
+# Combine surname and given name for "Last, First" format
+$Name = "$Surname, $GivenName"
+
+# Create the user login name in the format GivenName.Surname@locality.com
+$UserLoginName = "$GivenName.$Surname@locality.com"
+
+# Set user password (you can adjust this or add a Read-Host for password input if needed)
+$Password = ConvertTo-SecureString "Password123!" -AsPlainText -Force
+
+# Search for the manager by email
+$Manager = Get-ADUser -Filter { EmailAddress -eq $ManagerEmail }
+
+if ($Manager) {
+	$ManagerDN = $Manager.DistinguishedName
+} else {
+	Write-Host "Manager with email $ManagerEmail not found."
+	return
+}
+
+# Define basic user attributes for New-ADUser
+$UserAttributes = @{
+	Name          	= $Name
+	GivenName     	= $GivenName
+	Surname       	= $Surname
+	SamAccountName	= $SamAccountName
+	DisplayName   	= $Name
+	EmailAddress  	= $UserLoginName    	# Set email to GivenName.Surname@locality.com
+	UserPrincipalName = $UserLoginName    	# Set login name as UPN
+	Path          	= $OUPath
+	AccountPassword   = $Password
+	Enabled       	= $true
+	Department    	= $Department
+	Company       	= $Company
+	Title         	= $JobTitle
+	Manager       	= $ManagerDN
+}
+
+# Create the new AD user
+New-ADUser @UserAttributes
+
+# Set the ProxyAddresses attribute after the user is created
+Set-ADUser -Identity $SamAccountName -Add @{ProxyAddresses = "SMTP:$UserLoginName"}
+
+
+
