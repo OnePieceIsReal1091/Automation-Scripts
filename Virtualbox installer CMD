@@ -1,0 +1,28 @@
+# 1. Define Variables
+$Installer = "VirtualBox-7.2.6a-172322-Win.exe" # Ensure this matches your filename exactly
+$LogPath = "C:\Windows\Temp\VirtualBox_Install.log"
+
+Write-Output "Starting VirtualBox Installation..."
+
+# 2. Execute Installer
+# --silent: Standard Oracle silent flag
+# --ignore-reboot: Prevents the machine from restarting during Autopilot/Task Sequence
+$InstallProcess = Start-Process -FilePath ".\$Installer" -ArgumentList "--silent", "--ignore-reboot" -Wait -PassThru
+
+# 3. Post-Install: Remove Desktop Shortcut (The "Cleanup")
+# VirtualBox creates this for 'All Users' (Public Desktop)
+$ShortcutPath = "$env:Public\Desktop\Oracle VM VirtualBox.lnk"
+
+if (Test-Path $ShortcutPath) {
+    Write-Output "Removing Desktop Shortcut..."
+    Remove-Item -Path $ShortcutPath -Force
+}
+
+# 4. Exit with the installer's exit code so Intune knows if it failed
+if ($InstallProcess.ExitCode -ne 0) {
+    Write-Error "Installation failed with exit code $($InstallProcess.ExitCode)"
+    exit $InstallProcess.ExitCode
+} else {
+    Write-Output "Installation Successful."
+    exit 0
+}
