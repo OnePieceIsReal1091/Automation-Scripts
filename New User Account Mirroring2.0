@@ -1,0 +1,115 @@
+# Modules
+# Install-Module Microsoft.Graph -Scope CurrentUser
+# Install-Module ExchangeOnlineManagement
+
+Connect-MgGraph -Scopes "User.Read.All","Group.ReadWrite.All","Directory.Read.All"
+Connect-ExchangeOnline
+
+# Source user
+$sourceUPN = Read-Host "Enter SOURCE user UPN"
+$sourceUser = Get-MgUser -UserId $sourceUPN
+
+# Target user
+$targetUPN = Read-Host "Enter TARGET user UPN"
+$targetUser = Get-MgUser -UserId $targetUPN
+
+Write-Host "Copying Entra ID group memberships..."
+
+$groups = Get-MgUserMemberOf -UserId $sourceUser.Id -All
+
+foreach ($group in $groups) {
+
+    if ($group.'@odata.type' -eq "#microsoft.graph.group") {
+
+        $groupDetails = Get-MgGroup -GroupId $group.Id
+
+        try {
+
+            New-MgGroupMember `
+                -GroupId $group.Id `
+                -DirectoryObjectId $targetUser.Id
+
+            Write-Host "Added $targetUPN to group: $($groupDetails.DisplayName)"
+
+        } catch {
+
+            Write-Host "Skipped group: $($groupDetails.DisplayName)"
+        }
+    }
+}
+
+Write-Host "Copying distribution group memberships..."
+
+$distGroups = Get-DistributionGroup -ResultSize Unlimited
+
+foreach ($group in $distGroups) {
+
+    $members = Get-DistributionGroupMember $group.Identity -ResultSize Unlimited
+
+    if ($members.PrimarySmtpAddress -contains $sourceUPN) {
+
+        Add-DistributionGroupMember `
+            -Identity $group.Identity `
+            -Member $targetUPN `
+            -ErrorAction SilentlyContinue
+
+        Write-Host "Added $targetUPN to distribution group: $($group.DisplayName)"
+    }
+}
+
+Write-Host "Copying shared mailbox permissions..."
+
+$mailboxes = Get-Mailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited
+
+foreach ($mb in $mailboxes) {
+
+    $permissions = Get-MailboxPermission $mb.Identity |
+        Where-Object { $_.User -like $sourceUPN -and $_.AccessRights -contains "FullAccess" }
+
+    if ($permissions) {
+
+        Add-MailboxPermission `
+            -Identity $mb.Identity `
+            -User $targetUPN `
+            -AccessRights FullAccess `
+            -InheritanceType All `
+            -AutoMapping $false
+
+        Write-Host "Granted FullAccess to $($mb.Identity)"
+    }
+}
+
+Write-Host "Copying SendAs permissions..."
+
+$sendAsPerms = Get-RecipientPermission -ResultSize Unlimited |
+    Where-Object { $_.Trustee -eq $sourceUPN }
+
+foreach ($perm in $sendAsPerms) {
+
+    Add-RecipientPermission `
+        -Identity $perm.Identity `
+        -Trustee $targetUPN `
+        -AccessRights SendAs `
+        -Confirm:$false
+
+    Write-Host "Granted SendAs on $($perm.Identity)"
+}
+
+Write-Host "Copying SendOnBehalf permissions..."
+
+$mailboxes = Get-Mailbox -ResultSize Unlimited
+
+foreach ($mb in $mailboxes) {
+
+    if ($mb.GrantSendOnBehalfTo -contains $sourceUPN) {
+
+        Set-Mailbox `
+            -Identity $mb.Identity `
+            -GrantSendOnBehalfTo @{Add=$targetUPN}
+
+        Write-Host "Added SendOnBehalf for $($mb.Identity)"
+    }
+}
+
+Write-Host ""
+Write-Host "User clone completed."
