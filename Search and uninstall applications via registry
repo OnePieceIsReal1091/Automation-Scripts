@@ -1,0 +1,37 @@
+# Ask user which app to search for
+$App = Read-Host "Enter application name"
+
+$uninstallKeys = @(
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+)
+
+$ProductCode = $null
+$AppName = $null
+
+foreach ($key in $uninstallKeys) {
+    Get-ChildItem $key -ErrorAction SilentlyContinue | ForEach-Object {
+        $item = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+
+        if ($item.DisplayName -like "*$App*") {
+            $ProductCode = $_.PSChildName
+            $AppName = $item.DisplayName
+        }
+    }
+}
+
+# Show what was found
+Write-Host "Found application:"
+Write-Host "Name: $AppName"
+Write-Host "Product Code: $ProductCode"
+
+$confirm = Read-Host "Continue uninstall? (Y/N)"
+
+if ($confirm -eq "Y" -and $ProductCode) {
+    Start-Process msiexec.exe `
+        -ArgumentList "/x $ProductCode /qn /norestart" `
+        -Wait
+}
+else {
+    Write-Host "Uninstall cancelled or application not found."
+}
