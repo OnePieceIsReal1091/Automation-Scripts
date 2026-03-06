@@ -1,0 +1,69 @@
+# Install modules if needed
+# Install-Module Microsoft.Graph -Scope CurrentUser
+# Install-Module ExchangeOnlineManagement
+
+# Connect to Microsoft Graph
+Connect-MgGraph -Scopes "User.Read.All","Group.ReadWrite.All","Directory.Read.All"
+
+# Connect to Exchange
+Connect-ExchangeOnline
+
+# Original user
+$originalUserUPN = Read-Host "Enter the original user's UPN"
+$originalUser = Get-MgUser -UserId $originalUserUPN
+
+# Get group memberships
+$memberships = Get-MgUserMemberOf -UserId $originalUser.Id -All
+
+# New user
+$newUserUPN = Read-Host "Enter the new user's UPN"
+$newUser = Get-MgUser -UserId $newUserUPN
+
+foreach ($group in $memberships) {
+
+    if ($group.'@odata.type' -eq "#microsoft.graph.group") {
+
+        $groupDetails = Get-MgGroup -GroupId $group.Id
+
+        try {
+
+            # Add to Entra ID groups
+            New-MgGroupMember `
+                -GroupId $group.Id `
+                -DirectoryObjectId $newUser.Id
+
+            Write-Host "Added $newUserUPN to group: $($groupDetails.DisplayName)"
+
+        }
+        catch {
+            Write-Host "Skipped group: $($groupDetails.DisplayName)"
+        }
+
+        # Check if mail-enabled distribution group
+        $mailGroup = Get-DistributionGroup -Identity $groupDetails.DisplayName -ErrorAction SilentlyContinue
+
+        if ($mailGroup) {
+
+            Add-DistributionGroupMember `
+                -Identity $mailGroup.Identity `
+                -Member $newUserUPN `
+                -ErrorAction SilentlyContinue
+
+            Write-Host "$newUserUPN added to distribution group: $($mailGroup.DisplayName)"
+        }
+
+    }
+
+}
+
+# Mailbox permissions
+$mailboxIdentity = Read-Host "Enter mailbox identity to grant access"
+
+Add-MailboxPermission `
+    -Identity $mailboxIdentity `
+    -User $newUserUPN `
+    -AccessRights FullAccess `
+    -InheritanceType All `
+    -AutoMapping $false
+
+Write-Host "$newUserUPN now has FullAccess to $mailboxIdentity"
