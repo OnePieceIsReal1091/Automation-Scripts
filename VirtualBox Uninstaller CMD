@@ -1,0 +1,48 @@
+# =========================================================================
+# Script: Uninstall-VirtualBox.ps1
+# Purpose: Dynamic search and silent removal of Oracle VM VirtualBox
+# =========================================================================
+
+# 1. Define Variables
+$AppName = "Oracle VM VirtualBox"
+$LogPath = "C:\Windows\Temp\VirtualBox_Uninstall.log"
+
+Write-Output "Starting $AppName Uninstallation..."
+
+# 2. Execute Uninstall
+# We search the Registry for the DisplayName "Oracle VM VirtualBox" 
+# to get the current version's specific UninstallString.
+$App = Get-ChildItem -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | 
+       Get-ItemProperty | 
+       Where-Object { $_.DisplayName -like "*$AppName*" } | Select-Object -First 1
+
+if ($App.UninstallString) {
+    Write-Output "Found $AppName. Triggering silent uninstall..."
+    
+    # VirtualBox usually uninstalls via MsiExec. We swap /I for /X and add silent flags.
+    $UninstallCmd = $App.UninstallString -replace "/I", "/X"
+    $UninstallProcess = Start-Process "msiexec.exe" -ArgumentList "$UninstallCmd /qn /norestart" -Wait -PassThru
+} else {
+    Write-Output "$AppName not found. Skipping uninstall."
+}
+
+# 3. Post-Uninstall: Cleanup Leftovers
+# VirtualBox often leaves the desktop shortcut and driver folders behind.
+$ShortcutPath = "$env:Public\Desktop\Oracle VM VirtualBox.lnk"
+if (Test-Path $ShortcutPath) {
+    Write-Output "Removing leftover Desktop Shortcut..."
+    Remove-Item -Path $ShortcutPath -Force
+}
+
+# 4. Exit Logic
+# If the app is still in the registry, we mark it as a failure for Intune.
+$CheckApp = Get-ChildItem -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | 
+            Get-ItemProperty | Where-Object { $_.DisplayName -like "*$AppName*" }
+
+if ($CheckApp) {
+    Write-Error "Uninstallation failed. $AppName is still detected."
+    exit 1
+} else {
+    Write-Output "Uninstallation Successful."
+    exit 0
+}
