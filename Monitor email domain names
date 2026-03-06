@@ -1,0 +1,41 @@
+$domain = "@domainname.com"
+
+Import-Module ExchangeOnlineManagement
+Connect-ExchangeOnline
+
+$lastCheck = (Get-Date).AddMinutes(-10)
+$seen = @()
+
+while ($true) {
+
+    $now = Get-Date
+
+    $messages = Get-MessageTrace -StartDate $lastCheck -EndDate $now -PageSize 5000
+
+    $matches = $messages | Where-Object {
+
+        ($_.SenderAddress -like "*$domain*" -or $_.RecipientAddress -like "*$domain*") -and
+        ($seen -notcontains $_.MessageTraceId)
+
+    }
+
+    if ($matches) {
+
+        Write-Host ""
+        Write-Host "🚨 ALERT: Mail detected involving $domain" -ForegroundColor Red
+        Write-Host "----------------------------------------"
+
+        $matches | Select `
+            SenderAddress,
+            RecipientAddress,
+            Subject,
+            Received |
+        Format-Table -AutoSize
+
+        $seen += $matches.MessageTraceId
+    }
+
+    $lastCheck = $now
+
+    Start-Sleep -Seconds 10
+}
